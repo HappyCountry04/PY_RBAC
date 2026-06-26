@@ -1,0 +1,34 @@
+[project]
+name = "ruoyi-fastapi-backend"
+version = "0.1.0"
+description = "基于 FastAPI 重构的若依核心后台后端"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.13",
+  "asyncpg>=0.29",
+  "bcrypt>=4.1",
+  "fastapi>=0.111",
+  "greenlet>=3.0",
+  "openpyxl>=3.1",
+  "pydantic-settings>=2.2",
+  "python-jose[cryptography]>=3.3",
+  "python-multipart>=0.0.9",
+  "redis>=5.0",
+  "sqlalchemy[asyncio]>=2.0",
+  "uvicorn[standard]>=0.30"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "httpx>=0.27",
+  "ruff>=0.5"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
