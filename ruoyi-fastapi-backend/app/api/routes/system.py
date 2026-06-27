@@ -2,6 +2,8 @@
 
 from datetime import datetime
 import io
+import os
+import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
@@ -12,9 +14,9 @@ from sqlalchemy import Select, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import require_perm
+from app.api.deps import get_current_user, require_perm
 from app.core.response import success, table
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password
 from app.db.session import get_db
 from app.models import (
     SysConfig,
@@ -272,7 +274,159 @@ async def user_import_data(
         user.update_by = current_name(login_user)
         user.update_time = now
     await db.commit()
-    return success(msg=f"导入完成，新增 {created} 条，更新 {updated} 条，跳过 {len(skipped)} 条", skipped=skipped)
+    return success()
+
+
+# UPLOAD_DIR for avatars
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "avatars")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+@router.get("/user/profile")
+async def user_profile(
+    login_user: Annotated[LoginUser, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    user = login_user.user
+    posts = list(
+        (await db.execute(
+            select(SysPost).join(SysUserPost, SysPost.post_id == SysUserPost.post_id)
+            .where(SysUserPost.user_id == user.user_id)
+        )).scalars()
+    )
+    roles = list(
+        (await db.execute(
+            select(SysRole).join(SysUserRole, SysRole.role_id == SysUserRole.role_id)
+            .where(SysUserRole.user_id == user.user_id)
+        )).scalars()
+    )
+    return success(
+        data=serialize_user(user),
+        roleGroup="、".join(r.role_name for r in roles) or "无角色",
+        postGroup="、".join(p.post_name for p in posts) or "无岗位",
+        roles=[serialize_role(r) for r in roles],
+        postIds=[p.post_id for p in posts],
+        roleIds=[r.role_id for r in roles],
+    )
+
+
+@router.put("/user/profile")
+async def user_profile_update(
+    body: dict[str, Any],
+    login_user: Annotated[LoginUser, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    user = login_user.user
+    for attr, key in [
+        ("nick_name", "nickName"),
+        ("phonenumber", "phonenumber"),
+        ("email", "email"),
+        ("sex", "sex"),
+    ]:
+        value = field(body, key)
+        if value is not None:
+            setattr(user, attr, value)
+    user.update_by = current_name(login_user)
+    user.update_time = datetime.now()
+    await db.commit()
+    return success()
+
+
+@router.put("/user/profile/updatePwd")
+async def user_profile_update_pwd(
+    body: dict[str, Any],
+    login_user: Annotated[LoginUser, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    old_password = str(field(body, "oldPassword", ""))
+    new_password = str(field(body, "newPassword", ""))
+    if not verify_password(old_password, login_user.user.password):
+        raise HTTPException(status_code=400, detail="旧密码不正确")
+    login_user.user.password = get_password_hash(new_password)
+    login_user.user.update_by = current_name(login_user)
+    login_user.user.update_time = datetime.now()
+    await db.commit()
+    return success()
+
+
+@router.post("/user/profile/avatar")
+async def user_profile_avatar(
+    avatarfile: UploadFile = File(...),
+    login_user: LoginUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ext = os.path.splitext(avatarfile.filename or "avatar.png")[1] or ".png"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    content = await avatarfile.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+    login_user.user.avatar = f"/uploads/avatars/{filename}"
+    login_user.user.update_by = current_name(login_user)
+    login_user.user.update_time = datetime.now()
+    await db.commit()
+    return success(imgUrl=f"/uploads/avatars/{filename}")
+
+
+@router.get("/user/authRole/{user_id}")
+async def user_auth_role_detail(
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _login_user: Annotated[LoginUser, Depends(require_perm("system:user:query"))],
+):
+    user = await db.get(SysUser, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="数据不存在")
+    assigned_ids = set(
+        (await db.execute(select(SysUserRole.role_id).where(SysUserRole.user_id == user_id))).scalars()
+    )
+    all_roles = list((await db.execute(select(SysRole).where(SysRole.del_flag == "0").order_by(SysRole.role_sort))).scalars())
+    return success(
+        user=serialize_user(user),
+        roles=[{**serialize_role(r), "flag": r.role_id in assigned_ids} for r in all_roles],
+    )
+
+
+@router.get("/user/export")
+async def user_export(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    login_user: Annotated[LoginUser, Depends(require_perm("system:user:query"))],
+    user_name: str | None = Query(None, alias="userName"),
+    phonenumber: str | None = None,
+    status: str | None = None,
+    dept_id: int | None = Query(None, alias="deptId"),
+    begin_time: str | None = Query(None, alias="beginTime"),
+    end_time: str | None = Query(None, alias="endTime"),
+):
+    stmt = select(SysUser).options(selectinload(SysUser.dept)).where(SysUser.del_flag == "0").order_by(SysUser.user_id)
+    stmt = await apply_data_scope(db, stmt, login_user, SysUser.dept_id, SysUser.user_id)
+    if user_name:
+        stmt = stmt.where(SysUser.user_name.ilike(f"%{user_name}%"))
+    if phonenumber:
+        stmt = stmt.where(SysUser.phonenumber.ilike(f"%{phonenumber}%"))
+    if status:
+        stmt = stmt.where(SysUser.status == status)
+    if dept_id:
+        child_dept_ids = await collect_child_dept_ids(db, dept_id)
+        stmt = stmt.where(SysUser.dept_id.in_([dept_id, *child_dept_ids]))
+    stmt = apply_time_range(stmt, SysUser.create_time, begin_time, end_time)
+    rows = list((await db.execute(stmt)).scalars().unique())
+    data = [
+        [
+            str(u.user_id), u.user_name, u.nick_name,
+            u.dept.dept_name if u.dept else "",
+            u.phonenumber, u.email,
+            "男" if u.sex == "0" else "女" if u.sex == "1" else "未知",
+            "正常" if u.status == "0" else "停用",
+            str(u.create_time or ""), u.remark or ""
+        ]
+        for u in rows
+    ]
+    return await xlsx_export(
+        "user_export.xlsx",
+        ["用户ID", "账号", "昵称", "部门", "手机", "邮箱", "性别", "状态", "创建时间", "备注"],
+        data,
+    )
 
 
 @router.get("/user/{user_id}")
@@ -1507,48 +1661,6 @@ async def xlsx_export(filename: str, headers: list[str], rows: list[list[str]]) 
         content=output.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
-
-
-@router.get("/user/export")
-async def user_export(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    login_user: Annotated[LoginUser, Depends(require_perm("system:user:query"))],
-    user_name: str | None = Query(None, alias="userName"),
-    phonenumber: str | None = None,
-    status: str | None = None,
-    dept_id: int | None = Query(None, alias="deptId"),
-    begin_time: str | None = Query(None, alias="beginTime"),
-    end_time: str | None = Query(None, alias="endTime"),
-):
-    stmt = select(SysUser).options(selectinload(SysUser.dept)).where(SysUser.del_flag == "0").order_by(SysUser.user_id)
-    stmt = await apply_data_scope(db, stmt, login_user, SysUser.dept_id, SysUser.user_id)
-    if user_name:
-        stmt = stmt.where(SysUser.user_name.ilike(f"%{user_name}%"))
-    if phonenumber:
-        stmt = stmt.where(SysUser.phonenumber.ilike(f"%{phonenumber}%"))
-    if status:
-        stmt = stmt.where(SysUser.status == status)
-    if dept_id:
-        child_dept_ids = await collect_child_dept_ids(db, dept_id)
-        stmt = stmt.where(SysUser.dept_id.in_([dept_id, *child_dept_ids]))
-    stmt = apply_time_range(stmt, SysUser.create_time, begin_time, end_time)
-    rows = list((await db.execute(stmt)).scalars().unique())
-    data = [
-        [
-            str(u.user_id), u.user_name, u.nick_name,
-            u.dept.dept_name if u.dept else "",
-            u.phonenumber, u.email,
-            "男" if u.sex == "1" else "女" if u.sex == "2" else "未知",
-            "正常" if u.status == "0" else "停用",
-            str(u.create_time or ""), u.remark or ""
-        ]
-        for u in rows
-    ]
-    return await xlsx_export(
-        "user_export.xlsx",
-        ["用户ID", "账号", "昵称", "部门", "手机", "邮箱", "性别", "状态", "创建时间", "备注"],
-        data,
     )
 
 
