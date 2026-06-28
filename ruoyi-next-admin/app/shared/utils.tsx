@@ -103,3 +103,28 @@ export const sexOptions = [
   { label: "\u7537", value: "0" },
   { label: "\u5973", value: "1" },
 ];
+
+export function buildTree(
+  data: Record<string, unknown>[],
+  idField = "id",
+  parentField = "parentId",
+  childrenField = "children",
+): Record<string, unknown>[] {
+  const map: Record<string, Record<string, unknown>> = {};
+  const tree: Record<string, unknown>[] = [];
+  for (const item of data) {
+    const id = String(item[idField]);
+    map[id] = item;
+    if (!item[childrenField]) (item as Record<string, unknown>)[childrenField] = [];
+  }
+  for (const item of data) {
+    const parentId = String(item[parentField] ?? "0");
+    const parent = map[parentId];
+    if (!parent || parentId === "0") {
+      tree.push(item);
+    } else {
+      (parent[childrenField] as Record<string, unknown>[]).push(item);
+    }
+  }
+  return tree;
+}

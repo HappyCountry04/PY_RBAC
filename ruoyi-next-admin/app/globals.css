@@ -219,6 +219,9 @@ button {
 .primary-button,
 .primary-small,
 .ghost-button,
+.success-button,
+.info-button,
+.warning-button,
 .icon-button,
 .icon-row,
 .nav-button,
@@ -708,6 +711,9 @@ td {
 
 .text-button {
   color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .text-button.danger {
@@ -1180,6 +1186,17 @@ td {
 
 .toolbar .warning-button:hover {
   background: #d97706;
+}
+
+.toolbar .info-button {
+  background: #fff;
+  color: #6b7280;
+  border-color: #d1d5db;
+}
+
+.toolbar .info-button:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
 }
 
 .toolbar .ghost-button {

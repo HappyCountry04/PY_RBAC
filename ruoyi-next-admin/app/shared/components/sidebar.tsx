@@ -14,7 +14,7 @@ import type { RouterItem } from "../types";
 const routeMap: Record<string, string> = {
   user: "/system/user", role: "/system/role", menu: "/system/menu",
   dept: "/system/dept", post: "/system/post", dict: "/system/dict",
-  config: "/system/config", operlog: "/system/operlog", logininfor: "/system/logininfor",
+  config: "/system/config", operlog: "/monitor/operlog", logininfor: "/monitor/logininfor",
 };
 
 const viewIcons: Record<string, React.ElementType> = {
