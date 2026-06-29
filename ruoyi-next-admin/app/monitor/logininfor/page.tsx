@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
 import SidebarLayout from "../../shared/components/sidebar";
+import Pagination from "../../shared/components/pagination";
+import TableSkeleton from "../../shared/components/skeleton";
+import DictTag from "../../shared/components/dict-tag";
+import { modalConfirm } from "../../shared/components/modal";
 import { can, showToast, parseDate } from "../../shared/utils";
 import type { TableResponse } from "../../shared/types";
 
@@ -65,7 +69,7 @@ export default function LogininforPage() {
   function handleReset() { setQIpaddr(""); setQUserName(""); setQStatus(""); setQBeginTime(""); setQEndTime(""); setPageNum(1); }
 
   function toggleSelectAll(checked: boolean) {
-    if (checked) { setSelectedIds(new Set(rows.map((r) => Number(r.infoId)))); setSelectName(""); }
+    if (checked) { setSelectedIds(new Set(rows.map((r) => Number(r.info_id)))); setSelectName(""); }
     else { setSelectedIds(new Set()); setSelectName(""); }
   }
   function toggleSelect(infoId: number, userName: string) {
@@ -82,22 +86,22 @@ export default function LogininforPage() {
   }
 
   async function handleDelete(row?: Record<string, unknown>) {
-    const ids = row ? [row.infoId] : [...selectedIds];
+    const ids = row ? [row.info_id] : [...selectedIds];
     if (!ids.length) return;
-    if (!window.confirm(`是否确认删除日志编号为"${ids.join(",")}"的数据项？`)) return;
+    if (!await modalConfirm(`是否确认删除日志编号为"${ids.join(",")}"的数据项？`)) return;
     try { await api.delete(`/monitor/logininfor/${ids.join(",")}`); showToast("删除成功", "success"); setSelectedIds(new Set()); setSelectName(""); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "删除失败", "error"); }
   }
 
   async function handleClean() {
-    if (!window.confirm("是否确认清空所有登录日志？")) return;
+    if (!await modalConfirm("是否确认清空所有登录日志？")) return;
     try { await api.delete("/monitor/logininfor/clean"); showToast("清空成功", "success"); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "清空失败", "error"); }
   }
 
   async function handleUnlock() {
     if (!selectName) { showToast("请选择要解锁的用户", "info"); return; }
-    if (!window.confirm(`是否确认解锁用户"${selectName}"数据项？`)) return;
+    if (!await modalConfirm(`是否确认解锁用户"${selectName}"数据项？`)) return;
     try { await api.get(`/monitor/logininfor/unlock/${encodeURIComponent(selectName)}`); showToast(`用户${selectName}解锁成功`, "success"); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "解锁失败", "error"); }
   }
@@ -117,7 +121,6 @@ export default function LogininforPage() {
   }
 
   const single = selectedIds.size !== 1; const multiple = selectedIds.size === 0;
-  const totalPages = Math.ceil(total / pageSize);
 
   if (!session) return null;
 
@@ -141,7 +144,7 @@ export default function LogininforPage() {
           <button className="icon-button" onClick={() => setShowSearch(!showSearch)} title="搜索"><Search size={16} /></button>
           <button className="icon-button" onClick={load} title="刷新"><RefreshCw size={16} /></button>
         </div>
-        <div className="table-meta"><span>共 {total} 条</span>{error && <strong>{error}</strong>}</div>
+        {error && <div className="table-meta"><strong>{error}</strong></div>}
         <div className="table-wrap"><table><thead><tr>
           <th className="select-cell"><input type="checkbox" checked={selectedIds.size > 0 && selectedIds.size === rows.length} onChange={(e) => toggleSelectAll(e.target.checked)} /></th>
           <th>访问编号</th>
@@ -150,23 +153,23 @@ export default function LogininforPage() {
           <th>登录状态</th><th>操作信息</th>
           <th style={{ width: 180, cursor: "pointer" }} onClick={() => handleSort("loginTime")}>登录日期 {sortIcon("loginTime")}</th>
         </tr></thead><tbody>
-          {loading ? <tr><td colSpan={11}>加载中...</td></tr> : rows.length ? rows.map((row) => {
-            const iid = Number(row.infoId);
+          {loading ? <TableSkeleton cols={11} rows={6} /> : rows.length ? rows.map((row) => {
+            const iid = Number(row.info_id);
             return (<tr key={iid}>
-              <td className="select-cell"><input type="checkbox" checked={selectedIds.has(iid)} onChange={() => toggleSelect(iid, String(row.userName ?? ""))} /></td>
+              <td className="select-cell"><input type="checkbox" checked={selectedIds.has(iid)} onChange={() => toggleSelect(iid, String(row.user_name ?? ""))} /></td>
               <td>{iid}</td>
-              <td>{String(row.userName ?? "")}</td>
+              <td>{String(row.user_name ?? "")}</td>
               <td>{String(row.ipaddr ?? "")}</td>
-              <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.loginLocation ?? "")}</td>
+              <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.login_location ?? "")}</td>
               <td style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.browser ?? "")}</td>
               <td style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.os ?? "")}</td>
-              <td><span className={`dict-tag ${row.status === "0" ? "success" : "danger"}`}>{row.status === "0" ? "成功" : "失败"}</span></td>
+              <td><DictTag options={[{label:"成功",value:"0"},{label:"失败",value:"1"}]} value={String(row.status ?? "")} /></td>
               <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.msg ?? "")}</td>
-              <td>{parseDate(row.loginTime)}</td>
+              <td>{parseDate(row.login_time)}</td>
             </tr>);
           }) : <tr><td colSpan={11}>暂无数据</td></tr>}
         </tbody></table></div>
-        {total > 0 && <div className="pager"><span style={{ color: "var(--muted)", fontSize: 13 }}>第 {pageNum}/{totalPages} 页 共 {total} 条</span><select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPageNum(1); }} style={{ height: 32, border: "1px solid var(--line)", padding: "0 8px" }}><option value={10}>10条/页</option><option value={25}>25条/页</option><option value={50}>50条/页</option><option value={100}>100条/页</option></select><button className="ghost-button" disabled={pageNum <= 1} onClick={() => setPageNum((p) => p - 1)}>上一页</button><button className="ghost-button" disabled={pageNum >= totalPages} onClick={() => setPageNum((p) => p + 1)}>下一页</button></div>}
+        <Pagination pageNum={pageNum} pageSize={pageSize} total={total} onPageChange={(p, s) => { setPageNum(p); setPageSize(s); }} />
       </section>
     </SidebarLayout>
   );

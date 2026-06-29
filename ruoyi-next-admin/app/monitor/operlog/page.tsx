@@ -6,7 +6,11 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
 import SidebarLayout from "../../shared/components/sidebar";
-import { can, showToast, parseDate, readRowValue } from "../../shared/utils";
+import Pagination from "../../shared/components/pagination";
+import TableSkeleton from "../../shared/components/skeleton";
+import DictTag from "../../shared/components/dict-tag";
+import { modalConfirm } from "../../shared/components/modal";
+import { can, showToast, parseDate } from "../../shared/utils";
 import type { TableResponse } from "../../shared/types";
 
 export default function OperlogPage() {
@@ -35,6 +39,8 @@ export default function OperlogPage() {
   const [detailRow, setDetailRow] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => { if (!session) router.replace("/"); }, [session, router]);
+
+  const routerRef = router;
 
   const perms = (session?.permissions ?? []) as string[];
   const cQuery = can(perms, "monitor:operlog:query");
@@ -69,7 +75,7 @@ export default function OperlogPage() {
   function handleReset() { setQOperIp(""); setQTitle(""); setQOperName(""); setQBusinessType(""); setQStatus(""); setQBeginTime(""); setQEndTime(""); setPageNum(1); }
 
   function toggleSelectAll(checked: boolean) {
-    if (checked) setSelectedIds(new Set(rows.map((r) => Number(r.operId))));
+    if (checked) setSelectedIds(new Set(rows.map((r) => Number(r.oper_id))));
     else setSelectedIds(new Set());
   }
   function toggleSelect(id: number) { const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n); }
@@ -81,15 +87,15 @@ export default function OperlogPage() {
   }
 
   async function handleDelete(row?: Record<string, unknown>) {
-    const ids = row ? [row.operId] : [...selectedIds];
+    const ids = row ? [row.oper_id] : [...selectedIds];
     if (!ids.length) return;
-    if (!window.confirm(`是否确认删除日志编号为"${ids.join(",")}"的数据项？`)) return;
+    if (!await modalConfirm(`是否确认删除日志编号为"${ids.join(",")}"的数据项？`)) return;
     try { await api.delete(`/monitor/operlog/${ids.join(",")}`); showToast("删除成功", "success"); setSelectedIds(new Set()); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "删除失败", "error"); }
   }
 
   async function handleClean() {
-    if (!window.confirm("是否确认清空所有操作日志？")) return;
+    if (!await modalConfirm("是否确认清空所有操作日志？")) return;
     try { await api.delete("/monitor/operlog/clean"); showToast("清空成功", "success"); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "清空失败", "error"); }
   }
@@ -109,7 +115,6 @@ export default function OperlogPage() {
   }
 
   const multiple = selectedIds.size === 0;
-  const totalPages = Math.ceil(total / pageSize);
   const businessTypeMap: Record<string, string> = { "1": "新增", "2": "修改", "3": "删除", "4": "授权", "5": "导出", "6": "导入", "7": "强退", "8": "生成代码", "9": "清空数据" };
 
   if (!session) return null;
@@ -135,7 +140,7 @@ export default function OperlogPage() {
           <button className="icon-button" onClick={() => setShowSearch(!showSearch)} title="搜索"><Search size={16} /></button>
           <button className="icon-button" onClick={load} title="刷新"><RefreshCw size={16} /></button>
         </div>
-        <div className="table-meta"><span>共 {total} 条</span>{error && <strong>{error}</strong>}</div>
+        {error && <div className="table-meta"><strong>{error}</strong></div>}
         <div className="table-wrap"><table><thead><tr>
           <th className="select-cell"><input type="checkbox" checked={selectedIds.size > 0 && selectedIds.size === rows.length} onChange={(e) => toggleSelectAll(e.target.checked)} /></th>
           <th>日志编号</th><th>系统模块</th><th>操作类型</th>
@@ -145,26 +150,26 @@ export default function OperlogPage() {
           <th style={{ width: 110, cursor: "pointer" }} onClick={() => handleSort("costTime")}>消耗时间 {sortIcon("costTime")}</th>
           <th>操作</th>
         </tr></thead><tbody>
-          {loading ? <tr><td colSpan={12}>加载中...</td></tr> : rows.length ? rows.map((row) => {
-            const oid = Number(row.operId);
+          {loading ? <TableSkeleton cols={12} rows={6} /> : rows.length ? rows.map((row) => {
+            const oid = Number(row.oper_id);
             return (<tr key={oid}>
               <td className="select-cell"><input type="checkbox" checked={selectedIds.has(oid)} onChange={() => toggleSelect(oid)} /></td>
               <td>{oid}</td>
               <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.title ?? "")}</td>
-              <td><span className="dict-tag info">{businessTypeMap[String(row.businessType ?? "")] ?? String(row.businessType ?? "")}</span></td>
-              <td>{String(row.operName ?? "")}</td>
-              <td>{String(row.operIp ?? "")}</td>
-              <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.operLocation ?? "")}</td>
-              <td><span className={`dict-tag ${row.status === "0" ? "success" : "danger"}`}>{row.status === "0" ? "成功" : "失败"}</span></td>
-              <td>{parseDate(row.operTime)}</td>
-              <td>{String(row.costTime ?? "")}毫秒</td>
+              <td><span className="dict-tag info">{businessTypeMap[String(row.business_type ?? "")] ?? String(row.business_type ?? "")}</span></td>
+              <td>{String(row.oper_name ?? "")}</td>
+              <td>{String(row.oper_ip ?? "")}</td>
+              <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{String(row.oper_location ?? "")}</td>
+              <td><DictTag options={[{label:"成功",value:"0"},{label:"失败",value:"1"}]} value={String(row.status ?? "")} /></td>
+              <td>{parseDate(row.oper_time)}</td>
+              <td>{String(row.cost_time ?? "")}毫秒</td>
               <td className="actions-cell">
                 {cQuery && <button className="text-button" onClick={() => setDetailRow(row)}><Eye size={13} />详细</button>}
               </td>
             </tr>);
           }) : <tr><td colSpan={12}>暂无数据</td></tr>}
         </tbody></table></div>
-        {total > 0 && <div className="pager"><span style={{ color: "var(--muted)", fontSize: 13 }}>第 {pageNum}/{totalPages} 页 共 {total} 条</span><select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPageNum(1); }} style={{ height: 32, border: "1px solid var(--line)", padding: "0 8px" }}><option value={10}>10条/页</option><option value={25}>25条/页</option><option value={50}>50条/页</option><option value={100}>100条/页</option></select><button className="ghost-button" disabled={pageNum <= 1} onClick={() => setPageNum((p) => p - 1)}>上一页</button><button className="ghost-button" disabled={pageNum >= totalPages} onClick={() => setPageNum((p) => p + 1)}>下一页</button></div>}
+        <Pagination pageNum={pageNum} pageSize={pageSize} total={total} onPageChange={(p, s) => { setPageNum(p); setPageSize(s); }} />
       </section>
       {detailRow && <OperlogDetail row={detailRow} onClose={() => setDetailRow(null)} businessTypeMap={businessTypeMap} />}
     </SidebarLayout>
@@ -174,7 +179,7 @@ export default function OperlogPage() {
 function OperlogDetail({ row, onClose, businessTypeMap }: {
   row: Record<string, unknown>; onClose: () => void; businessTypeMap: Record<string, string>;
 }) {
-  const method = String(row.requestMethod ?? "GET");
+  const method = String(row.request_method ?? "GET");
   const methodColor: Record<string, string> = { GET: "success", POST: "primary", PUT: "warning", DELETE: "danger" };
 
   return (<div className="modal-mask" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -183,30 +188,30 @@ function OperlogDetail({ row, onClose, businessTypeMap }: {
       <h4 className="section-header">基本信息</h4>
       <div className="detail-grid">
         <div className="detail-item"><span>操作模块</span><strong>{String(row.title ?? "")}</strong></div>
-        <div className="detail-item"><span>业务类型</span><strong>{businessTypeMap[String(row.businessType ?? "")] ?? String(row.businessType ?? "")}</strong></div>
-        <div className="detail-item"><span>操作时间</span><strong>{parseDate(row.operTime)}</strong></div>
-        <div className="detail-item"><span>执行状态</span><strong><span className={`dict-tag ${row.status === "0" ? "success" : "danger"}`}>{row.status === "0" ? "正常" : "异常"}</span></strong></div>
+        <div className="detail-item"><span>业务类型</span><strong>{businessTypeMap[String(row.business_type ?? "")] ?? String(row.business_type ?? "")}</strong></div>
+        <div className="detail-item"><span>操作时间</span><strong>{parseDate(row.oper_time)}</strong></div>
+        <div className="detail-item"><span>执行状态</span><strong><span className={`dict-tag ${String(row.status) === "0" ? "success" : "danger"}`}>{String(row.status) === "0" ? "正常" : "异常"}</span></strong></div>
       </div>
       <h4 className="section-header">操作人员</h4>
       <div className="detail-grid">
-        <div className="detail-item"><span>操作人员</span><strong>{String(row.operName ?? "")}</strong></div>
-        <div className="detail-item"><span>所属部门</span><strong>{String(row.deptName ?? "")}</strong></div>
-        <div className="detail-item"><span>操作地址</span><strong>{String(row.operIp ?? "")}</strong></div>
-        <div className="detail-item"><span>操作地点</span><strong>{String(row.operLocation ?? "")}</strong></div>
+        <div className="detail-item"><span>操作人员</span><strong>{String(row.oper_name ?? "")}</strong></div>
+        <div className="detail-item"><span>所属部门</span><strong>{String(row.dept_name ?? "")}</strong></div>
+        <div className="detail-item"><span>操作地址</span><strong>{String(row.oper_ip ?? "")}</strong></div>
+        <div className="detail-item"><span>操作地点</span><strong>{String(row.oper_location ?? "")}</strong></div>
       </div>
       <h4 className="section-header">请求信息</h4>
       <div className="detail-grid">
-        <div className="detail-item"><span>请求地址</span><strong><span className={`dict-tag ${methodColor[method] ?? "info"}`} style={{ marginRight: 8 }}>{method}</span>{String(row.operUrl ?? "")}</strong></div>
+        <div className="detail-item"><span>请求地址</span><strong><span className={`dict-tag ${methodColor[method] ?? "info"}`} style={{ marginRight: 8 }}>{method}</span>{String(row.oper_url ?? "")}</strong></div>
         <div className="detail-item"><span>操作方法</span><strong><code style={{ fontSize: 12 }}>{String(row.method ?? "")}</code></strong></div>
-        <div className="detail-item"><span>消耗时间</span><strong>{String(row.costTime ?? "")}毫秒</strong></div>
+        <div className="detail-item"><span>消耗时间</span><strong>{String(row.cost_time ?? "")}毫秒</strong></div>
       </div>
       <h4 className="section-header">请求参数</h4>
-      <div style={{ padding: "0 18px 8px" }}><pre style={{ maxHeight: 200, overflow: "auto", background: "#f8fafc", padding: 12, fontSize: 12, border: "1px solid var(--line)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify(tryParse(String(row.operParam ?? "")), null, 2)}</pre></div>
+      <div style={{ padding: "0 18px 8px" }}><pre style={{ maxHeight: 200, overflow: "auto", background: "#f8fafc", padding: 12, fontSize: 12, border: "1px solid var(--line)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify(tryParse(String(row.oper_param ?? "")), null, 2)}</pre></div>
       <h4 className="section-header">返回参数</h4>
-      <div style={{ padding: "0 18px 8px" }}><pre style={{ maxHeight: 200, overflow: "auto", background: "#f8fafc", padding: 12, fontSize: 12, border: "1px solid var(--line)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify(tryParse(String(row.jsonResult ?? "")), null, 2)}</pre></div>
-      {row.status !== "0" && String(row.errorMsg ?? "") && (<>
+      <div style={{ padding: "0 18px 8px" }}><pre style={{ maxHeight: 200, overflow: "auto", background: "#f8fafc", padding: 12, fontSize: 12, border: "1px solid var(--line)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify(tryParse(String(row.json_result ?? "")), null, 2)}</pre></div>
+      {String(row.status) !== "0" && String(row.error_msg ?? "") && (<>
         <h4 className="section-header" style={{ color: "var(--danger)" }}>异常信息</h4>
-        <div style={{ padding: "0 18px 14px", color: "var(--danger)", fontSize: 13, whiteSpace: "pre-wrap" }}>{String(row.errorMsg)}</div>
+        <div style={{ padding: "0 18px 14px", color: "var(--danger)", fontSize: 13, whiteSpace: "pre-wrap" }}>{String(row.error_msg)}</div>
       </>)}
       <div className="modal-actions" style={{ borderTop: "1px solid var(--line)" }}><button className="ghost-button" onClick={onClose}>关闭</button></div>
     </div>

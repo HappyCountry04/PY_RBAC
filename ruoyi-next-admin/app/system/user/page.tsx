@@ -8,6 +8,9 @@ import { useAuth } from "../../shared/auth";
 import SidebarLayout from "../../shared/components/sidebar";
 import DeptTree from "../../shared/components/dept-tree";
 import { UserEditModal, UserViewDrawer, ImportDialog, ResetPwdModal, AuthRoleModal } from "../../shared/components/user-modals";
+import { modalConfirm } from "../../shared/components/modal";
+import TableSkeleton from "../../shared/components/skeleton";
+import DictTag from "../../shared/components/dict-tag";
 import { can, showToast, parseDate } from "../../shared/utils";
 import type { TableResponse } from "../../shared/types";
 
@@ -84,7 +87,7 @@ export default function UserManagementPage() {
 
   function handleDeptSelect(id: number | null) {
     if (activeDeptId === id) { setActiveDeptId(null); setQDeptId(""); }
-    else { setActiveDeptId(id); setQDeptId(String(id)); }
+    else { setActiveDeptId(id); setQDeptId(id !== null ? String(id) : ""); }
     setPageNum(1);
   }
 
@@ -97,7 +100,7 @@ export default function UserManagementPage() {
   async function handleStatusChange(row: Record<string, unknown>) {
     const uid = Number(row.userId); const ns = row.status === "0" ? "1" : "0";
     const text = ns === "0" ? "启用" : "停用";
-    if (!window.confirm(`确认要"${text}""${row.userName}"用户吗？`)) return;
+    if (!await modalConfirm(`确认要"${text}""${row.userName}"用户吗？`)) return;
     try { await api.put("/system/user/changeStatus", { userId: uid, status: ns }); showToast(`${text}成功`, "success"); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "操作失败", "error"); }
   }
@@ -106,7 +109,7 @@ export default function UserManagementPage() {
     const ids = row ? [row.userId] : [...selectedIds];
     if (!ids.length) return;
     if (ids.includes(1)) { showToast("不能删除超级管理员", "error"); return; }
-    if (!window.confirm(`是否确认删除用户编号为"${ids.join(",")}"的数据项？`)) return;
+    if (!await modalConfirm(`是否确认删除用户编号为"${ids.join(",")}"的数据项？`)) return;
     try { await api.delete(`/system/user/${ids.join(",")}`); showToast("删除成功", "success"); setSelectedIds(new Set()); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "删除失败", "error"); }
   }
@@ -148,12 +151,12 @@ export default function UserManagementPage() {
             <button className="icon-button" onClick={() => setShowSearch(!showSearch)} title="搜索"><Search size={16} /></button>
             <button className="icon-button" onClick={load} title="刷新"><RefreshCw size={16} /></button>
           </div>
-          <div className="table-meta"><span>共 {total} 条</span>{error && <strong>{error}</strong>}</div>
+          {error && <div className="table-meta"><strong>{error}</strong></div>}
           <div className="table-wrap"><table><thead><tr>
             <th className="select-cell"><input type="checkbox" checked={selectedIds.size > 0 && selectedIds.size === rows.filter((r) => Number(r.userId) !== 1).length} onChange={(e) => toggleSelectAll(e.target.checked)} /></th>
             <th>用户编号</th><th>用户名称</th><th>用户昵称</th><th>部门</th><th>手机号码</th><th>状态</th><th>创建时间</th><th>操作</th>
           </tr></thead><tbody>
-            {loading ? <tr><td colSpan={9}>加载中...</td></tr> : rows.length ? rows.map((row) => {
+            {loading ? <TableSkeleton cols={9} rows={6} /> : rows.length ? rows.map((row) => {
               const uid = Number(row.userId); const isAdmin = uid === 1; const dept = row.dept as Record<string, unknown> | undefined;
               return (<tr key={uid}>
                 <td className="select-cell">{!isAdmin && <input type="checkbox" checked={selectedIds.has(uid)} onChange={() => toggleSelect(uid)} />}</td>

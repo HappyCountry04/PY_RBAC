@@ -79,17 +79,18 @@ async def seed() -> None:
             SysMenu(menu_id=500, menu_name="操作日志", parent_id=108, order_num=1, path="operlog", component="monitor/operlog/index", is_frame=1, is_cache=0, menu_type="C", visible="0", status="0", perms="monitor:operlog:list", icon="form", create_by="admin", create_time=now),
             SysMenu(menu_id=501, menu_name="登录日志", parent_id=108, order_num=2, path="logininfor", component="monitor/logininfor/index", is_frame=1, is_cache=0, menu_type="C", visible="0", status="0", perms="monitor:logininfor:list", icon="logininfor", create_by="admin", create_time=now),
         ]
-        button_perms = [
-            "system:user:query", "system:user:add", "system:user:edit", "system:user:remove", "system:user:resetPwd",
-            "system:role:query", "system:role:add", "system:role:edit", "system:role:remove",
-            "system:menu:query", "system:menu:add", "system:menu:edit", "system:menu:remove",
-            "system:dept:query", "system:dept:add", "system:dept:edit", "system:dept:remove",
-            "system:post:query", "system:post:add", "system:post:edit", "system:post:remove",
-            "system:dict:query", "system:dict:add", "system:dict:edit", "system:dict:remove",
-            "system:config:query", "system:config:add", "system:config:edit", "system:config:remove",
-            "monitor:operlog:query", "monitor:logininfor:query",
+        button_defs = [
+            ("system:user:query", "用户查询"), ("system:user:add", "用户新增"), ("system:user:edit", "用户修改"), ("system:user:remove", "用户删除"), ("system:user:resetPwd", "重置密码"),
+            ("system:role:query", "角色查询"), ("system:role:add", "角色新增"), ("system:role:edit", "角色修改"), ("system:role:remove", "角色删除"),
+            ("system:menu:query", "菜单查询"), ("system:menu:add", "菜单新增"), ("system:menu:edit", "菜单修改"), ("system:menu:remove", "菜单删除"),
+            ("system:dept:query", "部门查询"), ("system:dept:add", "部门新增"), ("system:dept:edit", "部门修改"), ("system:dept:remove", "部门删除"),
+            ("system:post:query", "岗位查询"), ("system:post:add", "岗位新增"), ("system:post:edit", "岗位修改"), ("system:post:remove", "岗位删除"),
+            ("system:dict:query", "字典查询"), ("system:dict:add", "字典新增"), ("system:dict:edit", "字典修改"), ("system:dict:remove", "字典删除"),
+            ("system:config:query", "参数查询"), ("system:config:add", "参数新增"), ("system:config:edit", "参数修改"), ("system:config:remove", "参数删除"),
+            ("monitor:operlog:query", "操作日志查询"), ("monitor:operlog:remove", "操作日志删除"), ("monitor:operlog:export", "操作日志导出"),
+            ("monitor:logininfor:query", "登录日志查询"), ("monitor:logininfor:remove", "登录日志删除"), ("monitor:logininfor:export", "登录日志导出"), ("monitor:logininfor:unlock", "解锁用户"),
         ]
-        for idx, perm in enumerate(button_perms, start=1000):
+        for idx, (perm, name) in enumerate(button_defs, start=1000):
             parent_id = {
                 "user": 100,
                 "role": 101,
@@ -104,7 +105,7 @@ async def seed() -> None:
             menus.append(
                 SysMenu(
                     menu_id=idx,
-                    menu_name=perm,
+                    menu_name=name,
                     parent_id=parent_id,
                     order_num=idx,
                     path="",

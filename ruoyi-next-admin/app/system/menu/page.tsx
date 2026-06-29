@@ -6,22 +6,26 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
 import SidebarLayout from "../../shared/components/sidebar";
-import { can, showToast, parseDate, readRowValue, flattenTreeOptions, buildTree } from "../../shared/utils";
+import SvgIcon from "../../shared/components/svgicon";
+import TreeSelect from "../../shared/components/tree-select";
+import TableSkeleton from "../../shared/components/skeleton";
+import { modalConfirm } from "../../shared/components/modal";
+import { can, showToast, parseDate, readRowValue, buildTree } from "../../shared/utils";
 import type { TableResponse } from "../../shared/types";
 
-// ── Icon list ──
 const ICONS = [
-  "#", "system", "monitor", "tool", "user", "peoples", "phone", "tree", "tree-table", "form",
-  "documentation", "guide", "eye-open", "eye", "checkbox", "component", "button", "dict",
-  "example", "excel", "pdf", "zip", "clipboard", "email", "internet", "chart", "color",
-  "date-range", "date", "icon", "input", "link", "list", "logininfor", "log", "message",
-  "money", "nested", "online", "operlog", "password", "post", "question", "radio",
-  "rate", "role", "rows", "search", "select", "server", "size", "slider", "star",
-  "swagger", "switch", "tab", "table", "time", "time-range", "upload", "validCode",
-  "wechat", "create", "bug", "dashboard", "job", "redis", "redis-list", "build",
-  "drag", "education", "exit-fullscreen", "fullscreen", "international", "language",
-  "like", "lock", "number", "shopping", "skill", "sort", "tab-radio", "cascader",
-  "color-picker", "edit", "editor", "number-validate", "pic-upload", "share",
+  "#", "404", "bell", "bug", "build", "button", "cascader", "chart", "checkbox",
+  "clipboard", "code", "color", "component", "dashboard", "date", "date-range",
+  "dict", "documentation", "download", "drag", "druid", "edit", "education",
+  "email", "enter", "example", "excel", "exit-fullscreen", "eye", "eye-open",
+  "form", "fullscreen", "github", "guide", "icon", "input", "international",
+  "job", "language", "link", "list", "lock", "log", "logininfor", "message",
+  "money", "monitor", "more-up", "nested", "number", "online", "password",
+  "pdf", "people", "peoples", "phone", "post", "qq", "question", "radio",
+  "rate", "redis", "redis-list", "row", "search", "select", "server",
+  "shopping", "size", "skill", "slider", "star", "swagger", "switch",
+  "system", "tab", "table", "textarea", "theme", "time", "time-range",
+  "tool", "tree", "tree-table", "upload", "user", "validCode", "wechat", "zip",
 ];
 
 function menuTypeLabel(t: string) {
@@ -145,7 +149,7 @@ export default function MenuManagementPage() {
   function handleReset() { setQMenuName(""); setQStatus(""); void load(); }
 
   async function handleDelete(row: Record<string, unknown>) {
-    if (!window.confirm(`是否确认删除菜单"${row.menuName}"？`)) return;
+    if (!await modalConfirm(`是否确认删除菜单"${row.menuName}"？`)) return;
     try {
       await api.delete(`/system/menu/${row.menuId}`);
       showToast("删除成功", "success");
@@ -204,7 +208,7 @@ export default function MenuManagementPage() {
           <button className="icon-button" onClick={() => setShowSearch(!showSearch)} title="搜索"><Search size={16} /></button>
           <button className="icon-button" onClick={load} title="刷新"><RefreshCw size={16} /></button>
         </div>
-        <div className="table-meta"><span>共 {displayRows.length} 条</span>{error && <strong>{error}</strong>}</div>
+        {error && <div className="table-meta"><strong>{error}</strong></div>}
         <div className="table-wrap">
           <table>
             <thead><tr>
@@ -217,7 +221,7 @@ export default function MenuManagementPage() {
               <th style={{ width: 180 }}>操作</th>
             </tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={7}>加载中...</td></tr> : displayRows.length ? displayRows.map((row) => {
+              {loading ? <TableSkeleton cols={7} rows={6} /> : displayRows.length ? displayRows.map((row) => {
                 const mid = Number(row.menuId);
                 const depth = (row._depth as number) || 0;
                 const mt = String(row.menuType ?? "");
@@ -232,7 +236,7 @@ export default function MenuManagementPage() {
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </span>
                     ) : <span style={{ display: "inline-block", width: 18 }} />}
-                    <span>{String(row.icon ?? "#") !== "#" && <span style={{ marginRight: 6, color: "var(--muted)" }}>[{String(row.icon)}]</span>}{String(row.menuName ?? "")}</span>
+                    <span><SvgIcon name={String(row.icon ?? "")} size={16} /><span style={{ marginLeft: row.icon && row.icon !== "#" ? 6 : 0 }}>{String(row.menuName ?? "")}</span></span>
                   </td>
                   <td><span className={`dict-tag ${isExternal(mt, frame) ? "danger" : menuTypeColor(mt)}`}>{isExternal(mt, frame) ? "外链" : menuTypeLabel(mt)}</span></td>
                   <td>
@@ -268,7 +272,7 @@ function MenuEditModal({ mode, parentId, menuId, onClose, onSaved }: {
   });
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(mode === "edit");
-  const [treeOptions, setTreeOptions] = useState<{ label: string; value: string }[]>([]);
+  const [treeNodes, setTreeNodes] = useState<{ id: string | number; label: string; children?: { id: string | number; label: string; children?: { id: string | number; label: string }[] }[] }[]>([]);
   const [iconOpen, setIconOpen] = useState(false);
   const [iconSearch, setIconSearch] = useState("");
 
@@ -276,9 +280,8 @@ function MenuEditModal({ mode, parentId, menuId, onClose, onSaved }: {
     try {
       const [treeRes] = await Promise.all([api.get("/system/menu/treeselect")]);
       const tree = (treeRes as Record<string, unknown>).data as Record<string, unknown>[];
-      const opts = flattenTreeOptions(tree ?? []);
-      opts.unshift({ value: "0", label: "主类目" });
-      setTreeOptions(opts);
+      const nodes = (tree ?? []).map((n: any) => ({ id: n.id, label: n.label, children: n.children }));
+      setTreeNodes([{ id: "0", label: "主类目", children: nodes }]);
 
       if (mode === "edit" && menuId) {
         const detail = await api.get(`/system/menu/${menuId}`);
@@ -336,10 +339,8 @@ function MenuEditModal({ mode, parentId, menuId, onClose, onSaved }: {
   return (<div className="modal-mask"><form className="modal-panel" style={{ width: "min(680px, 100%)" }} onSubmit={submit}>
     <div className="modal-head"><h2>{mode === "edit" ? "修改菜单" : "添加菜单"}</h2><button type="button" className="text-button" onClick={onClose}><X size={18} /></button></div>
     <div className="form-grid">
-      {/* Row 1: Parent + Type */}
-      <label>上级菜单<select value={values.parentId ?? "0"} onChange={(e) => setV("parentId", e.target.value)}><option value="0">主类目</option>{treeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-      <label>
-        菜单类型
+      <label><span className="form-label-text">上级菜单</span><TreeSelect value={values.parentId ?? "0"} options={treeNodes} onChange={(v) => setV("parentId", v)} /></label>
+      <label><span className="form-label-text">菜单类型</span>
         <div className="radio-group">
           {[{ label: "目录", value: "M" }, { label: "菜单", value: "C" }, { label: "按钮", value: "F" }].map((o) => (
             <label key={o.value} className="radio-label"><input type="radio" name="menuType" value={o.value} checked={mt === o.value} onChange={(e) => setV("menuType", e.target.value)} />{o.label}</label>
@@ -347,64 +348,51 @@ function MenuEditModal({ mode, parentId, menuId, onClose, onSaved }: {
         </div>
       </label>
 
-      {/* Icon selector — hidden for F type */}
       {mt !== "F" && (
-        <label>
-          菜单图标
-          <div style={{ position: "relative" }}>
+        <label><span className="form-label-text">菜单图标</span>
+          <div style={{ position: "relative", flex: 1 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input value={values.icon ?? "#"} onChange={(e) => setV("icon", e.target.value)} style={{ width: 120 }} placeholder="图标名称" />
+              <input value={values.icon ?? "#"} onChange={(e) => setV("icon", e.target.value)} style={{ flex: 1, maxWidth: 200 }} placeholder="图标名称" />
               <button type="button" className="ghost-button" style={{ height: 32, fontSize: 12 }} onClick={() => { setIconOpen(!iconOpen); setIconSearch(""); }}>选择</button>
             </div>
             {iconOpen && (
-              <div style={{ position: "absolute", zIndex: 10, background: "#fff", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", borderRadius: 8, width: 360, padding: 8 }}>
+              <div style={{ position: "absolute", zIndex: 10, top: "100%", left: 0, marginTop: 4, background: "#fff", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", borderRadius: 8, width: 360, padding: 8 }}>
                 <div style={{ padding: "0 4px 8px" }}><div className="search-box"><Search size={14} /><input value={iconSearch} onChange={(e) => setIconSearch(e.target.value)} placeholder="搜索图标" style={{ height: 28, fontSize: 12 }} /></div></div>
-                <div className="icon-select" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 6, maxHeight: 240, overflow: "auto" }}>
+                <div className="icon-select" style={{ gap: 6, maxHeight: 240, overflow: "auto" }}>
                   {filteredIcons.map((ic) => (
-                    <button key={ic} type="button" className={`icon-choice${values.icon === ic ? " active" : ""}`} onClick={() => { setV("icon", ic); setIconOpen(false); setIconSearch(""); }} style={{ padding: "6px 8px" }}>
-                      <span>{ic.charAt(0).toUpperCase()}</span><small>{ic}</small>
+                    <button key={ic} type="button" className={`icon-choice${values.icon === ic ? " active" : ""}`} onClick={() => { setV("icon", ic); setIconOpen(false); setIconSearch(""); }} style={{ padding: "6px 8px", display: "flex", alignItems: "center", gap: 6 }}>
+                      <SvgIcon name={ic === "#" ? "" : ic} size={16} /><small>{ic}</small>
                     </button>
                   ))}
-                  {filteredIcons.length === 0 && <div className="empty-hint" style={{ gridColumn: "1/-1", textAlign: "center" }}>无匹配图标</div>}
+                  {filteredIcons.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 12, color: "var(--muted)" }}>无匹配图标</div>}
                 </div>
               </div>
             )}
           </div>
         </label>
       )}
-      {mt === "F" && <label>{/* placeholder for grid alignment */}<span style={{ visibility: "hidden" }}>_</span></label>}
 
-      {/* Sort + Name */}
-      <label>显示排序 <span style={{ color: "var(--danger)" }}>*</span><input type="number" value={values.orderNum ?? "0"} onChange={(e) => setV("orderNum", e.target.value)} min={0} /></label>
-      <label>菜单名称 <span style={{ color: "var(--danger)" }}>*</span><input value={values.menuName ?? ""} onChange={(e) => setV("menuName", e.target.value)} /></label>
+      <label><span className="form-label-text">显示排序 <em className="required">*</em></span><input type="number" value={values.orderNum ?? "0"} onChange={(e) => setV("orderNum", e.target.value)} min={0} /></label>
+      <label><span className="form-label-text">菜单名称 <em className="required">*</em></span><input value={values.menuName ?? ""} onChange={(e) => setV("menuName", e.target.value)} /></label>
 
-      {/* Route name + External link */}
-      {mt === "C" && <label>路由名称<input value={values.routeName ?? ""} onChange={(e) => setV("routeName", e.target.value)} placeholder="默认与路由地址相同" /></label>}
+      {mt === "C" && <label><span className="form-label-text">路由名称</span><input value={values.routeName ?? ""} onChange={(e) => setV("routeName", e.target.value)} placeholder="默认与路由地址相同" /></label>}
       {mt !== "F" && (
-        <label>
-          是否外链
+        <label><span className="form-label-text">是否外链</span>
           <div className="radio-group">
             <label className="radio-label"><input type="radio" name="isFrame" value="0" checked={values.isFrame === "0"} onChange={() => setV("isFrame", "0")} />是</label>
             <label className="radio-label"><input type="radio" name="isFrame" value="1" checked={(values.isFrame || "1") === "1"} onChange={() => setV("isFrame", "1")} />否</label>
           </div>
         </label>
       )}
-      {mt === "F" && <label>{/* grid placeholder */}<span style={{ visibility: "hidden" }}>_</span></label>}
 
-      {/* Route path + Component */}
-      {mt !== "F" && <label>路由地址 {mt === "C" && <span style={{ color: "var(--danger)" }}>*</span>}<input value={values.path ?? ""} onChange={(e) => setV("path", e.target.value)} /></label>}
-      {mt === "C" && <label>组件路径<input value={values.component ?? ""} onChange={(e) => setV("component", e.target.value)} /></label>}
-      {mt !== "F" && mt !== "C" && <label>{/* grid placeholder */}<span style={{ visibility: "hidden" }}>_</span></label>}
+      {mt !== "F" && <label><span className="form-label-text">路由地址 {mt === "C" && <em className="required">*</em>}</span><input value={values.path ?? ""} onChange={(e) => setV("path", e.target.value)} /></label>}
+      {mt === "C" && <label><span className="form-label-text">组件路径</span><input value={values.component ?? ""} onChange={(e) => setV("component", e.target.value)} /></label>}
 
-      {/* Perms + Query */}
-      {mt !== "M" && <label>权限标识<input value={values.perms ?? ""} onChange={(e) => setV("perms", e.target.value)} placeholder="如：system:user:list" /></label>}
-      {mt === "M" && <label>{/* placeholder */}<span style={{ visibility: "hidden" }}>_</span></label>}
-      {mt === "C" && <label>路由参数<input value={values.query ?? ""} onChange={(e) => setV("query", e.target.value)} placeholder={`如：{"id":"1"}`} /></label>}
+      {mt !== "M" && <label><span className="form-label-text">权限标识</span><input value={values.perms ?? ""} onChange={(e) => setV("perms", e.target.value)} placeholder="如：system:user:list" /></label>}
+      {mt === "C" && <label><span className="form-label-text">路由参数</span><input value={values.query ?? ""} onChange={(e) => setV("query", e.target.value)} placeholder={`如：{"id":"1"}`} /></label>}
 
-      {/* Cache + Visible */}
       {mt === "C" && (
-        <label>
-          是否缓存
+        <label><span className="form-label-text">是否缓存</span>
           <div className="radio-group">
             <label className="radio-label"><input type="radio" name="isCache" value="0" checked={(values.isCache || "0") === "0"} onChange={() => setV("isCache", "0")} />缓存</label>
             <label className="radio-label"><input type="radio" name="isCache" value="1" checked={values.isCache === "1"} onChange={() => setV("isCache", "1")} />不缓存</label>
@@ -412,25 +400,20 @@ function MenuEditModal({ mode, parentId, menuId, onClose, onSaved }: {
         </label>
       )}
       {mt !== "F" && (
-        <label>
-          显示状态
+        <label><span className="form-label-text">显示状态</span>
           <div className="radio-group">
             <label className="radio-label"><input type="radio" name="visible" value="0" checked={(values.visible || "0") === "0"} onChange={() => setV("visible", "0")} />显示</label>
             <label className="radio-label"><input type="radio" name="visible" value="1" checked={values.visible === "1"} onChange={() => setV("visible", "1")} />隐藏</label>
           </div>
         </label>
       )}
-      {mt === "F" && <label>{/* grid placeholder */}<span style={{ visibility: "hidden" }}>_</span></label>}
 
-      {/* Status */}
-      <label>
-        菜单状态
+      <label><span className="form-label-text">菜单状态</span>
         <div className="radio-group">
           <label className="radio-label"><input type="radio" name="status" value="0" checked={(values.status || "0") === "0"} onChange={() => setV("status", "0")} />正常</label>
           <label className="radio-label"><input type="radio" name="status" value="1" checked={values.status === "1"} onChange={() => setV("status", "1")} />停用</label>
         </div>
       </label>
-      <label>{/* grid placeholder */}<span style={{ visibility: "hidden" }}>_</span></label>
     </div>
     {error && <div className="form-error">{error}</div>}
     <div className="modal-actions"><button type="button" className="ghost-button" onClick={onClose}>取消</button><button className="primary-small" disabled={busy}>{busy ? "保存中..." : "确定"}</button></div>

@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
 import SidebarLayout from "../../shared/components/sidebar";
-import { can, showToast, parseDate, readRowValue, flattenTreeOptions, buildTree } from "../../shared/utils";
+import TreeSelect from "../../shared/components/tree-select";
+import TableSkeleton from "../../shared/components/skeleton";
+import { modalConfirm } from "../../shared/components/modal";
+import { can, showToast, parseDate, readRowValue, buildTree } from "../../shared/utils";
 import type { TableResponse } from "../../shared/types";
 
 function flattenAll(nodes: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -91,7 +94,7 @@ export default function DeptManagementPage() {
   function handleReset() { setQDeptName(""); setQStatus(""); void load(); }
 
   async function handleDelete(row: Record<string, unknown>) {
-    if (!window.confirm(`是否确认删除部门"${row.deptName}"？`)) return;
+    if (!await modalConfirm(`是否确认删除部门"${row.deptName}"？`)) return;
     try {
       await api.delete(`/system/dept/${row.deptId}`);
       showToast("删除成功", "success");
@@ -150,7 +153,7 @@ export default function DeptManagementPage() {
           <button className="icon-button" onClick={() => setShowSearch(!showSearch)} title="搜索"><Search size={16} /></button>
           <button className="icon-button" onClick={load} title="刷新"><RefreshCw size={16} /></button>
         </div>
-        <div className="table-meta"><span>共 {displayRows.length} 条</span>{error && <strong>{error}</strong>}</div>
+        {error && <div className="table-meta"><strong>{error}</strong></div>}
         <div className="table-wrap">
           <table>
             <thead><tr>
@@ -161,7 +164,7 @@ export default function DeptManagementPage() {
               <th>操作</th>
             </tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={5}>加载中...</td></tr> : displayRows.length ? displayRows.map((row) => {
+              {loading ? <TableSkeleton cols={5} rows={6} /> : displayRows.length ? displayRows.map((row) => {
                 const did = Number(row.deptId);
                 const depth = (row._depth as number) || 0;
                 const st = String(row.status ?? "0");
@@ -208,21 +211,14 @@ function DeptEditModal({ mode, parentId, deptId, onClose, onSaved }: {
   });
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(mode === "edit");
-  const [treeOptions, setTreeOptions] = useState<{ label: string; value: string }[]>([]);
+  const [treeNodes, setTreeNodes] = useState<{ id: string | number; label: string; children?: { id: string | number; label: string }[] }[]>([]);
 
   useEffect(() => { (async () => {
     try {
-      let treeData: Record<string, unknown>[];
-      if (mode === "edit" && deptId) {
-        const [treeRes] = await Promise.all([api.get(`/system/dept/list/exclude/${deptId}`)]);
-        treeData = (treeRes as Record<string, unknown>).data as Record<string, unknown>[];
-      } else {
-        const [treeRes] = await Promise.all([api.get("/system/dept/treeselect")]);
-        treeData = (treeRes as Record<string, unknown>).data as Record<string, unknown>[];
-      }
-      const opts = flattenTreeOptions(treeData ?? []);
-      opts.unshift({ value: "0", label: "无" });
-      setTreeOptions(opts);
+      const treeRes = await api.get("/system/dept/treeselect");
+      const tree = (treeRes as Record<string, unknown>).data as Record<string, unknown>[];
+      const nodes = (tree ?? []).map((n: any) => ({ id: n.id, label: n.label, children: n.children }));
+      setTreeNodes([{ id: "0", label: "无", children: nodes }]);
 
       if (mode === "edit" && deptId) {
         const detail = await api.get(`/system/dept/${deptId}`);
@@ -234,8 +230,7 @@ function DeptEditModal({ mode, parentId, deptId, onClose, onSaved }: {
         if (init.orderNum === "" || init.orderNum === "undefined") init.orderNum = "0";
         if (init.status === "" || init.status === "undefined") init.status = "0";
         setValues(init);
-      }
-      if (mode === "create" && parentId) {
+      } else if (mode === "create" && parentId) {
         setValues((prev) => ({ ...prev, parentId: String(parentId) }));
       }
     } catch (err) { setError(err instanceof ApiError ? err.message : "加载失败"); }
@@ -270,20 +265,18 @@ function DeptEditModal({ mode, parentId, deptId, onClose, onSaved }: {
   return (<div className="modal-mask"><form className="modal-panel" style={{ width: "min(680px, 100%)" }} onSubmit={submit}>
     <div className="modal-head"><h2>{mode === "edit" ? "修改部门" : "添加部门"}</h2><button type="button" className="text-button" onClick={onClose}><X size={18} /></button></div>
     <div className="form-grid">
-      <label>上级部门<select value={values.parentId ?? "0"} onChange={(e) => setV("parentId", e.target.value)}>{treeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-      <label>部门名称 <span style={{ color: "var(--danger)" }}>*</span><input value={values.deptName ?? ""} onChange={(e) => setV("deptName", e.target.value)} /></label>
-      <label>显示排序 <span style={{ color: "var(--danger)" }}>*</span><input type="number" value={values.orderNum ?? "0"} onChange={(e) => setV("orderNum", e.target.value)} min={0} /></label>
-      <label>负责人<input value={values.leader ?? ""} onChange={(e) => setV("leader", e.target.value)} /></label>
-      <label>联系电话<input value={values.phone ?? ""} onChange={(e) => setV("phone", e.target.value)} placeholder="如：13800000000" /></label>
-      <label>邮箱<input value={values.email ?? ""} onChange={(e) => setV("email", e.target.value)} placeholder="如：admin@ruoyi.com" /></label>
-      <label>
-        状态
+      <label><span className="form-label-text">上级部门</span><TreeSelect value={values.parentId ?? "0"} options={treeNodes} onChange={(v) => setV("parentId", v)} /></label>
+      <label><span className="form-label-text">部门名称 <em className="required">*</em></span><input value={values.deptName ?? ""} onChange={(e) => setV("deptName", e.target.value)} /></label>
+      <label><span className="form-label-text">显示排序 <em className="required">*</em></span><input type="number" value={values.orderNum ?? "0"} onChange={(e) => setV("orderNum", e.target.value)} min={0} /></label>
+      <label><span className="form-label-text">负责人</span><input value={values.leader ?? ""} onChange={(e) => setV("leader", e.target.value)} /></label>
+      <label><span className="form-label-text">联系电话</span><input value={values.phone ?? ""} onChange={(e) => setV("phone", e.target.value)} placeholder="如：13800000000" /></label>
+      <label><span className="form-label-text">邮箱</span><input value={values.email ?? ""} onChange={(e) => setV("email", e.target.value)} placeholder="如：admin@ruoyi.com" /></label>
+      <label><span className="form-label-text">状态</span>
         <div className="radio-group">
-          <label className="radio-label"><input type="radio" name="status" value="0" checked={(values.status || "0") === "0"} onChange={() => setV("status", "0")} />正常</label>
-          <label className="radio-label"><input type="radio" name="status" value="1" checked={values.status === "1"} onChange={() => setV("status", "1")} />停用</label>
+          <span className="radio-label"><input type="radio" name="status" value="0" checked={(values.status || "0") === "0"} onChange={() => setV("status", "0")} />正常</span>
+          <span className="radio-label"><input type="radio" name="status" value="1" checked={values.status === "1"} onChange={() => setV("status", "1")} />停用</span>
         </div>
       </label>
-      <label>{/* grid placeholder */}<span style={{ visibility: "hidden" }}>_</span></label>
     </div>
     {error && <div className="form-error">{error}</div>}
     <div className="modal-actions"><button type="button" className="ghost-button" onClick={onClose}>取消</button><button className="primary-small" disabled={busy}>{busy ? "保存中..." : "确定"}</button></div>

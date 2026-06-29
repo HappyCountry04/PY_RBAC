@@ -444,12 +444,17 @@ async def user_detail(
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="数据不存在")
+    role_names = "、".join(role.role_name for role in user.roles) or "无角色"
+    post_names = "、".join(post.post_name for post in user.posts) or "无岗位"
     role_ids = [role.role_id for role in user.roles]
     post_ids = [post.post_id for post in user.posts]
     roles = list((await db.execute(select(SysRole).where(SysRole.del_flag == "0").order_by(SysRole.role_sort))).scalars())
     posts = list((await db.execute(select(SysPost).order_by(SysPost.post_sort))).scalars())
+    data = serialize_user(user)
+    data["roleNames"] = role_names
+    data["postNames"] = post_names
     return success(
-        data=serialize_user(user),
+        data=data,
         roleIds=role_ids,
         postIds=post_ids,
         roles=[serialize_role(role) for role in roles],
@@ -892,6 +897,20 @@ async def menu_tree_select(
     return success([tree_select(node) for node in build_tree(rows, 0)])
 
 
+@router.get("/menu/roleMenuTreeselect/{role_id}")
+async def menu_role_treeselect(
+    role_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _login_user: Annotated[LoginUser, Depends(require_perm("system:role:query"))],
+):
+    rows = list((await db.execute(select(SysMenu).order_by(SysMenu.parent_id, SysMenu.order_num))).scalars())
+    role_menus = list(
+        (await db.execute(select(SysRoleMenu.menu_id).where(SysRoleMenu.role_id == role_id))).scalars()
+    )
+    tree = [tree_select(node) for node in build_tree(rows, 0)]
+    return success(checkedKeys=role_menus, menus=tree)
+
+
 @router.get("/menu/{menu_id}")
 async def menu_detail(
     menu_id: int,
@@ -999,6 +1018,28 @@ async def menu_remove(
     return success()
 
 
+@router.put("/menu/updateSort")
+async def menu_update_sort(
+    body: dict[str, Any],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    login_user: Annotated[LoginUser, Depends(require_perm("system:menu:edit"))],
+):
+    menu_ids = field(body, "menuIds", "")
+    order_nums = field(body, "orderNums", "")
+    if not menu_ids or not order_nums:
+        raise HTTPException(status_code=400, detail="参数不能为空")
+    id_list = [int(x) for x in str(menu_ids).split(",")]
+    num_list = [int(x) for x in str(order_nums).split(",")]
+    for menu_id, order_num in zip(id_list, num_list):
+        menu = await db.get(SysMenu, menu_id)
+        if menu:
+            menu.order_num = order_num
+            menu.update_by = current_name(login_user)
+            menu.update_time = datetime.now()
+    await db.commit()
+    return success()
+
+
 @router.get("/dept/list")
 async def dept_list(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -1014,6 +1055,16 @@ async def dept_list(
         stmt = stmt.where(SysDept.status == status)
     rows = list((await db.execute(stmt)).scalars())
     return success([serialize_dept(row) for row in rows])
+
+
+@router.get("/dept/treeselect")
+async def dept_tree_select(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _login_user: Annotated[LoginUser, Depends(require_perm("system:dept:query"))],
+):
+    rows = list((await db.execute(select(SysDept).where(SysDept.del_flag == "0").order_by(SysDept.parent_id, SysDept.order_num))).scalars())
+    tree = build_dept_tree(rows, 0)
+    return success([dept_tree(node) for node in tree])
 
 
 @router.get("/dept/list/exclude/{dept_id}")
@@ -1093,6 +1144,28 @@ async def dept_edit(
             setattr(dept, attr, value)
     dept.update_by = current_name(login_user)
     dept.update_time = datetime.now()
+    await db.commit()
+    return success()
+
+
+@router.put("/dept/updateSort")
+async def dept_update_sort(
+    body: dict[str, Any],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    login_user: Annotated[LoginUser, Depends(require_perm("system:dept:edit"))],
+):
+    dept_ids = field(body, "deptIds", "")
+    order_nums = field(body, "orderNums", "")
+    if not dept_ids or not order_nums:
+        raise HTTPException(status_code=400, detail="参数不能为空")
+    id_list = [int(x) for x in str(dept_ids).split(",")]
+    num_list = [int(x) for x in str(order_nums).split(",")]
+    for dept_id, order_num in zip(id_list, num_list):
+        dept = await db.get(SysDept, dept_id)
+        if dept:
+            dept.order_num = order_num
+            dept.update_by = current_name(login_user)
+            dept.update_time = datetime.now()
     await db.commit()
     return success()
 
@@ -1528,6 +1601,13 @@ async def dict_data_remove(
 monitor_router = APIRouter(prefix="/monitor", tags=["monitor"])
 
 
+_operlog_sort_map = {
+    "operName": SysOperLog.oper_name,
+    "operTime": SysOperLog.oper_time,
+    "costTime": SysOperLog.cost_time,
+}
+
+
 @monitor_router.get("/operlog/list")
 async def operlog_list(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -1535,16 +1615,27 @@ async def operlog_list(
     pages: Annotated[tuple[int, int], Depends(page_params)],
     title: str | None = None,
     oper_name: str | None = Query(None, alias="operName"),
+    oper_ip: str | None = Query(None, alias="operIp"),
     business_type: int | None = Query(None, alias="businessType"),
     status: int | None = None,
     begin_time: str | None = Query(None, alias="beginTime"),
     end_time: str | None = Query(None, alias="endTime"),
+    order_by_column: str | None = Query(None, alias="orderByColumn"),
+    is_asc: str | None = Query(None, alias="isAsc"),
 ):
-    stmt = select(SysOperLog).order_by(SysOperLog.oper_id.desc())
+    sort_col = _operlog_sort_map.get(order_by_column) if order_by_column else None
+    if sort_col is not None and is_asc == "asc":
+        stmt = select(SysOperLog).order_by(sort_col.asc())
+    elif sort_col is not None:
+        stmt = select(SysOperLog).order_by(sort_col.desc())
+    else:
+        stmt = select(SysOperLog).order_by(SysOperLog.oper_id.desc())
     if title:
         stmt = stmt.where(SysOperLog.title.ilike(f"%{title}%"))
     if oper_name:
         stmt = stmt.where(SysOperLog.oper_name.ilike(f"%{oper_name}%"))
+    if oper_ip:
+        stmt = stmt.where(SysOperLog.oper_ip.ilike(f"%{oper_ip}%"))
     if business_type is not None:
         stmt = stmt.where(SysOperLog.business_type == business_type)
     if status is not None:
@@ -1576,6 +1667,12 @@ async def operlog_remove(
     return success()
 
 
+_logininfor_sort_map = {
+    "userName": SysLogininfor.user_name,
+    "loginTime": SysLogininfor.login_time,
+}
+
+
 @monitor_router.get("/logininfor/list")
 async def logininfor_list(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -1586,8 +1683,16 @@ async def logininfor_list(
     status: str | None = None,
     begin_time: str | None = Query(None, alias="beginTime"),
     end_time: str | None = Query(None, alias="endTime"),
+    order_by_column: str | None = Query(None, alias="orderByColumn"),
+    is_asc: str | None = Query(None, alias="isAsc"),
 ):
-    stmt = select(SysLogininfor).order_by(SysLogininfor.info_id.desc())
+    sort_col = _logininfor_sort_map.get(order_by_column) if order_by_column else None
+    if sort_col is not None and is_asc == "asc":
+        stmt = select(SysLogininfor).order_by(sort_col.asc())
+    elif sort_col is not None:
+        stmt = select(SysLogininfor).order_by(sort_col.desc())
+    else:
+        stmt = select(SysLogininfor).order_by(SysLogininfor.info_id.desc())
     if user_name:
         stmt = stmt.where(SysLogininfor.user_name.ilike(f"%{user_name}%"))
     if ipaddr:
@@ -1619,6 +1724,18 @@ async def logininfor_remove(
     await db.execute(delete(SysLogininfor).where(SysLogininfor.info_id.in_(ids)))
     await db.commit()
     return success()
+
+
+@monitor_router.get("/logininfor/unlock/{user_name}")
+async def logininfor_unlock(
+    user_name: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _login_user: Annotated[LoginUser, Depends(require_perm("monitor:logininfor:unlock"))],
+):
+    user = await db.scalar(select(SysUser).where(SysUser.user_name == user_name))
+    if user is None:
+        raise HTTPException(status_code=404, detail=f"用户 {user_name} 不存在")
+    return success(msg=f"用户 {user_name} 解锁成功")
 
 
 async def xlsx_export(filename: str, headers: list[str], rows: list[list[str]]) -> Response:

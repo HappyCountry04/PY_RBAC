@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
 import SidebarLayout from "../../shared/components/sidebar";
+import { modalConfirm } from "../../shared/components/modal";
+import TableSkeleton from "../../shared/components/skeleton";
+import DictTag from "../../shared/components/dict-tag";
 import { can, showToast, parseDate, readRowValue } from "../../shared/utils";
 import type { TableResponse } from "../../shared/types";
 
@@ -68,7 +71,7 @@ export default function PostManagementPage() {
   async function handleDelete(row?: Record<string, unknown>) {
     const ids = row ? [row.postId] : [...selectedIds];
     if (!ids.length) return;
-    if (!window.confirm(`是否确认删除岗位编号为"${ids.join(",")}"的数据项？`)) return;
+    if (!await modalConfirm(`是否确认删除岗位编号为"${ids.join(",")}"的数据项？`)) return;
     try { await api.delete(`/system/post/${ids.join(",")}`); showToast("删除成功", "success"); setSelectedIds(new Set()); await load(); }
     catch (err) { showToast(err instanceof ApiError ? err.message : "删除失败", "error"); }
   }
@@ -106,12 +109,12 @@ export default function PostManagementPage() {
           <button className="icon-button" onClick={() => setShowSearch(!showSearch)} title="搜索"><Search size={16} /></button>
           <button className="icon-button" onClick={load} title="刷新"><RefreshCw size={16} /></button>
         </div>
-        <div className="table-meta"><span>共 {total} 条</span>{error && <strong>{error}</strong>}</div>
+        {error && <div className="table-meta"><strong>{error}</strong></div>}
         <div className="table-wrap"><table><thead><tr>
           <th className="select-cell"><input type="checkbox" checked={selectedIds.size > 0 && selectedIds.size === rows.length} onChange={(e) => toggleSelectAll(e.target.checked)} /></th>
           <th>岗位编号</th><th>岗位编码</th><th>岗位名称</th><th>岗位排序</th><th>状态</th><th style={{ width: 180 }}>创建时间</th><th>操作</th>
         </tr></thead><tbody>
-          {loading ? <tr><td colSpan={8}>加载中...</td></tr> : rows.length ? rows.map((row) => {
+          {loading ? <TableSkeleton cols={8} rows={5} /> : rows.length ? rows.map((row) => {
             const pid = Number(row.postId);
             return (<tr key={pid}>
               <td className="select-cell"><input type="checkbox" checked={selectedIds.has(pid)} onChange={() => toggleSelect(pid)} /></td>
@@ -181,17 +184,16 @@ function PostEditModal({ mode, postId, onClose, onSaved }: {
   return (<div className="modal-mask"><form className="modal-panel" style={{ width: "min(500px, 100%)" }} onSubmit={submit}>
     <div className="modal-head"><h2>{mode === "edit" ? "修改岗位" : "添加岗位"}</h2><button type="button" className="text-button" onClick={onClose}><X size={18} /></button></div>
     <div className="form-grid">
-      <label>岗位名称 <span style={{ color: "var(--danger)" }}>*</span><input value={values.postName ?? ""} onChange={(e) => setV("postName", e.target.value)} /></label>
-      <label>岗位编码 <span style={{ color: "var(--danger)" }}>*</span><input value={values.postCode ?? ""} onChange={(e) => setV("postCode", e.target.value)} /></label>
-      <label>岗位顺序 <span style={{ color: "var(--danger)" }}>*</span><input type="number" value={values.postSort ?? "0"} onChange={(e) => setV("postSort", e.target.value)} min={0} /></label>
-      <label>
-        状态
+      <label><span className="form-label-text">岗位名称 <em className="required">*</em></span><input value={values.postName ?? ""} onChange={(e) => setV("postName", e.target.value)} /></label>
+      <label><span className="form-label-text">岗位编码 <em className="required">*</em></span><input value={values.postCode ?? ""} onChange={(e) => setV("postCode", e.target.value)} /></label>
+      <label><span className="form-label-text">岗位顺序 <em className="required">*</em></span><input type="number" value={values.postSort ?? "0"} onChange={(e) => setV("postSort", e.target.value)} min={0} /></label>
+      <label><span className="form-label-text">状态</span>
         <div className="radio-group">
           <label className="radio-label"><input type="radio" name="status" value="0" checked={(values.status || "0") === "0"} onChange={() => setV("status", "0")} />正常</label>
           <label className="radio-label"><input type="radio" name="status" value="1" checked={values.status === "1"} onChange={() => setV("status", "1")} />停用</label>
         </div>
       </label>
-      <label className="wide-field">备注<textarea value={values.remark ?? ""} onChange={(e) => setV("remark", e.target.value)} /></label>
+      <label><span className="form-label-text">备注</span><textarea value={values.remark ?? ""} onChange={(e) => setV("remark", e.target.value)} /></label>
     </div>
     {error && <div className="form-error">{error}</div>}
     <div className="modal-actions"><button type="button" className="ghost-button" onClick={onClose}>取消</button><button className="primary-small" disabled={busy}>{busy ? "保存中..." : "确定"}</button></div>

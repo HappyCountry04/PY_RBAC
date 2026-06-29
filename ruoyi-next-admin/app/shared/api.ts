@@ -1,3 +1,5 @@
+import { startLoader, stopLoader } from "./components/top-loader";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const TOKEN_KEY = "ruoyi_next_token";
 
@@ -24,6 +26,7 @@ export function clearToken() {
 }
 
 async function request<T = Record<string, any>>(path: string, init: RequestInit = {}): Promise<T> {
+  startLoader();
   const headers = new Headers(init.headers);
   if (!(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const token = getToken();
@@ -40,6 +43,7 @@ async function request<T = Record<string, any>>(path: string, init: RequestInit 
       signal: controller.signal
     });
   } catch (err) {
+    stopLoader();
     if (err instanceof DOMException && err.name === "AbortError") {
       throw new ApiError("\u8bf7\u6c42\u8d85\u65f6\uff0c\u8bf7\u68c0\u67e5\u540e\u7aef\u670d\u52a1", 408);
     }
@@ -53,9 +57,11 @@ async function request<T = Record<string, any>>(path: string, init: RequestInit 
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
+    stopLoader();
     throw new ApiError("\u540e\u7aef\u8fd4\u56de\u683c\u5f0f\u4e0d\u662f JSON", response.status);
   }
 
+  stopLoader();
   if (!response.ok || (typeof data.code === "number" && data.code >= 400)) {
     throw new ApiError(String(data.detail ?? data.msg ?? "\u8bf7\u6c42\u5931\u8d25"), response.status);
   }

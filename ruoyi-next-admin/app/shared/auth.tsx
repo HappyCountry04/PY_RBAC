@@ -15,7 +15,7 @@ type AuthContextType = {
   session: Session | null;
   loading: boolean;
   error: string;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, code?: string, uuid?: string) => Promise<void>;
   logout: () => Promise<void>;
   bootstrap: () => Promise<void>;
 };
@@ -50,8 +50,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const res = (await api.post("/login", { username, password })) as LoginResponse;
+  const login = useCallback(async (username: string, password: string, code?: string, uuid?: string) => {
+    const body: Record<string, string> = { username, password };
+    if (code) body.code = code;
+    if (uuid) body.uuid = uuid;
+    const res = (await api.post("/login", body)) as LoginResponse;
     setToken(res.token);
     await bootstrap();
   }, [bootstrap]);

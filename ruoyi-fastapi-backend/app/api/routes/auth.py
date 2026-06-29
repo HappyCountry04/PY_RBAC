@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -23,10 +24,68 @@ class LoginBody(BaseModel):
     uuid: str | None = None
 
 
+def parse_ua_browser(user_agent: str) -> str:
+    if not user_agent:
+        return ""
+    ua = user_agent.lower()
+    if "micromessenger/" in ua:
+        m = re.search(r"micromessenger/([\d.]+)", ua)
+        return f"微信 {m.group(1)}" if m else "微信"
+    if "edg/" in ua:
+        m = re.search(r"edg/([\d.]+)", ua)
+        return f"Edge {m.group(1)}" if m else "Edge"
+    if "firefox/" in ua:
+        m = re.search(r"firefox/([\d.]+)", ua)
+        return f"Firefox {m.group(1)}" if m else "Firefox"
+    if "chrome/" in ua and "safari/" in ua:
+        m = re.search(r"chrome/([\d.]+)", ua)
+        return f"Chrome {m.group(1)}" if m else "Chrome"
+    if "safari/" in ua and "chrome/" not in ua:
+        m = re.search(r"version/([\d.]+)", ua)
+        return f"Safari {m.group(1)}" if m else "Safari"
+    if "msie " in ua or "trident/" in ua:
+        return "IE"
+    m = re.search(r"\)\s+(\S+?)/([\d.]+)", user_agent)
+    if m:
+        return f"{m.group(1)} {m.group(2)}"
+    return user_agent[:50]
+
+
+def parse_ua_os(user_agent: str) -> str:
+    if not user_agent:
+        return ""
+    ua = user_agent.lower()
+    if "windows nt 10" in ua:
+        return "Windows 10"
+    if "windows nt 6.3" in ua:
+        return "Windows 8.1"
+    if "windows nt 6.2" in ua:
+        return "Windows 8"
+    if "windows nt 6.1" in ua:
+        return "Windows 7"
+    if "windows" in ua:
+        return "Windows"
+    if "mac os x" in ua or "macintosh" in ua:
+        return "Mac OS X"
+    if "linux" in ua and "android" in ua:
+        m = re.search(r"android\s+([\d.]+)", ua)
+        return f"Android {m.group(1)}" if m else "Android"
+    if "linux" in ua:
+        return "Linux"
+    if "iphone" in ua or "ipad" in ua:
+        return "iOS"
+    return ""
+
+
 @router.post("/login")
 async def login(body: LoginBody, request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
+    if body.code and body.uuid:
+        stored = await redis_client.get(f"captcha:{body.uuid}")
+        if stored is None or str(stored) != body.code.strip():
+            raise HTTPException(status_code=400, detail="验证码错误")
     user = await get_user_by_username(db, body.username)
     ok = bool(user and user.status == "0" and verify_password(body.password, user.password))
+    ua = request.headers.get("User-Agent", "")
     db.add(
         SysLogininfor(
             user_name=body.username,
@@ -34,6 +93,8 @@ async def login(body: LoginBody, request: Request, db: Annotated[AsyncSession, D
             status="0" if ok else "1",
             msg="登录成功" if ok else "用户名或密码错误",
             login_time=datetime.now(timezone.utc).replace(tzinfo=None),
+            browser=parse_ua_browser(ua),
+            os=parse_ua_os(ua),
         )
     )
     await db.commit()

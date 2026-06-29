@@ -20,7 +20,10 @@ export function toCsv(value: unknown) {
 }
 
 export function flattenRouters(routers: RouterItem[]): RouterItem[] {
-  return routers.flatMap((r) => [r, ...flattenRouters(r.children ?? [])]);
+  return routers.flatMap((r) => {
+    if (r.hidden) return [];
+    return [r, ...flattenRouters(r.children ?? [])];
+  });
 }
 
 export function toOptions(rows: unknown, valueKey: string, labelKey: string): FormOption[] {
@@ -38,12 +41,20 @@ export function toOptions(rows: unknown, valueKey: string, labelKey: string): Fo
 
 export function flattenTreeOptions(nodes: unknown, level = 0): FormOption[] {
   if (!Array.isArray(nodes)) return [];
-  return nodes.flatMap((node) => {
+  return nodes.flatMap((node, idx, arr) => {
     const item = node as Record<string, unknown>;
     const id = item.id ?? item.deptId ?? item.menuId;
     const label = item.label ?? item.deptName ?? item.menuName ?? id;
     const children = item.children;
-    const cur = id === undefined ? [] : [{ value: String(id), label: `${"\u00A0\u00A0".repeat(level)}${String(label)}` }];
+    const isLast = idx === arr.length - 1;
+    let prefix = "";
+    for (let i = 0; i < level; i++) {
+      prefix += "\u2502  "; // │  
+    }
+    if (level > 0) {
+      prefix += isLast ? "\u2514\u2500 " : "\u251C\u2500 "; // └─ or ├─
+    }
+    const cur = id === undefined ? [] : [{ value: String(id), label: `${prefix}${String(label)}` }];
     return [...cur, ...flattenTreeOptions(children, level + 1)];
   });
 }

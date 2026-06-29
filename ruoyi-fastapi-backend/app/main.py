@@ -1,7 +1,7 @@
 import os
 import time
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -41,6 +41,21 @@ async def oper_log_middleware(request: Request, call_next):
         except Exception:
             pass
 
+        resp_body = None
+        try:
+            resp_chunks = []
+            async for chunk in response.body_iterator:
+                resp_chunks.append(chunk)
+            resp_body = b"".join(resp_chunks).decode("utf-8", errors="replace")[:2000]
+            response = Response(
+                content=b"".join(resp_chunks),
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.media_type,
+            )
+        except Exception:
+            pass
+
         asyncio.ensure_future(
             write_oper_log(
                 method=request.method,
@@ -48,7 +63,7 @@ async def oper_log_middleware(request: Request, call_next):
                 client_ip=client_ip,
                 request_body=body_raw,
                 response_status=response.status_code,
-                response_body=None,
+                response_body=resp_body,
                 authorization=auth,
                 cost_time=cost_ms,
             )
