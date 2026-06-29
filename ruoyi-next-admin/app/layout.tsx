@@ -11,7 +11,7 @@ const PRELOAD_DICTS = ["sys_normal_disable", "sys_show_hide", "sys_user_sex", "s
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>
+      <body suppressHydrationWarning>
         <AuthProvider>
           <PreloadDicts types={PRELOAD_DICTS}>
             <ThemeInit />

@@ -9,35 +9,91 @@ import FullscreenToggle from "./fullscreen";
 import ThemePicker from "./theme-picker";
 import type { RouterItem } from "../types";
 
+function visibleChildren(item: RouterItem): RouterItem[] {
+  return (item.children ?? []).filter((c) => !c.hidden);
+}
+
 const routeMap: Record<string, string> = {
   user: "/system/user", role: "/system/role", menu: "/system/menu",
   dept: "/system/dept", post: "/system/post", dict: "/system/dict",
   config: "/system/config", operlog: "/monitor/operlog", logininfor: "/monitor/logininfor",
 };
 
-const viewTitles: Record<string, string> = {
-  user: "用户管理", role: "角色管理", menu: "菜单管理", dept: "部门管理",
-  post: "岗位管理", dict: "字典管理", config: "参数配置",
-  operlog: "操作日志", logininfor: "登录日志",
+function resolveRoute(item: RouterItem, parentRoute: string): string {
+  const key = item.path.replace(/^\//, "");
+  if (routeMap[key]) return routeMap[key];
+  return parentRoute ? `${parentRoute}/${key}` : `/${key}`;
+}
+
+function buildRoute(item: RouterItem, parentRoute: string): string {
+  const seg = item.path.replace(/^\//, "");
+  return parentRoute ? `${parentRoute}/${seg}` : `/${seg}`;
+}
+
+type NavItem = {
+  route: string;
+  icon?: string;
+  label: string;
+  active: boolean;
+  type: "leaf";
 };
 
-function visibleChildren(item: RouterItem): RouterItem[] {
-  return (item.children ?? []).filter((c) => !c.hidden);
+type DirItem = {
+  route: string;
+  icon?: string;
+  label: string;
+  childActive: boolean;
+  expanded: boolean;
+  type: "dir";
+  children: (NavItem | DirItem)[];
+};
+
+function buildNavTree(
+  items: RouterItem[],
+  parentRoute: string,
+  pathname: string,
+  expandedSet: Set<string>,
+): (NavItem | DirItem)[] {
+  return items
+    .filter((item) => !item.hidden)
+    .map((item) => {
+      const route = buildRoute(item, parentRoute);
+      const children = visibleChildren(item);
+      const label = item.meta?.title ?? item.name ?? item.path;
+      const icon = item.meta?.icon;
+
+      if (children.length > 0) {
+        const sub = buildNavTree(children, route, pathname, expandedSet);
+        const childActive = sub.some((c) => {
+          if (c.type === "leaf") return c.active;
+          return c.childActive;
+        });
+        const expanded = expandedSet.has(route);
+        return { route, icon, label, childActive, expanded, type: "dir" as const, children: sub };
+      }
+
+      const active = pathname.startsWith(resolveRoute(item, parentRoute));
+      return { route: resolveRoute(item, parentRoute), icon, label, active, type: "leaf" as const };
+    });
 }
 
-function leafRoute(item: RouterItem): string | undefined {
-  const key = item.path.replace("/", "");
-  return routeMap[key];
-}
-
-function anyDescendantActive(item: RouterItem, pathname: string): boolean {
-  if (item.hidden) return false;
-  const route = leafRoute(item);
-  if (route && pathname.startsWith(route)) return true;
-  for (const child of item.children ?? []) {
-    if (anyDescendantActive(child, pathname)) return true;
+function collectAncestorRoutes(item: RouterItem, parentRoute: string, pathname: string): Set<string> {
+  const out = new Set<string>();
+  const route = buildRoute(item, parentRoute);
+  const children = visibleChildren(item);
+  if (children.length === 0) {
+    if (pathname.startsWith(resolveRoute(item, parentRoute))) out.add(route);
+    return out;
   }
-  return false;
+  for (const child of children) {
+    const childRoutes = collectAncestorRoutes(child, route, pathname);
+    if (childRoutes.size > 0) {
+      out.add(route);
+      for (const r of childRoutes) out.add(r);
+      return out;
+    }
+  }
+  return out;
 }
 
 const NavBtn = memo(function NavBtn({ active, icon, label, open, onClick }: {
@@ -60,7 +116,8 @@ export default function SidebarLayout({ children, currentPaths }: { children: Re
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [manualCollapsed, setManualCollapsed] = useState<Set<string>>(new Set());
+  const [manualExpanded, setManualExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!loading && !session) router.replace("/");
@@ -72,10 +129,40 @@ export default function SidebarLayout({ children, currentPaths }: { children: Re
 
   const routers = (session?.routers ?? []).filter((r) => !r.hidden);
 
+  const autoExpandSet = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of routers) {
+      for (const s of collectAncestorRoutes(r, "", pathname)) out.add(s);
+    }
+    return out;
+  }, [routers, pathname]);
+
+  const expandedSet = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of autoExpandSet) {
+      if (!manualCollapsed.has(r)) out.add(r);
+    }
+    for (const r of manualExpanded) out.add(r);
+    return out;
+  }, [autoExpandSet, manualCollapsed, manualExpanded]);
+
+  const navTree = useMemo(
+    () => buildNavTree(routers, "", pathname, expandedSet),
+    [routers, pathname, expandedSet],
+  );
+
   const title = useMemo(() => {
-    for (const p of currentPaths) { if (viewTitles[p]) return viewTitles[p]; }
+    for (const item of navTree) {
+      if (item.type === "leaf" && item.active) return item.label;
+      if (item.type === "dir") {
+        for (const c of item.children) {
+          if (c.type === "leaf" && c.active) return c.label;
+          if (c.type === "dir" && c.childActive) return c.label;
+        }
+      }
+    }
     return "";
-  }, [currentPaths]);
+  }, [navTree]);
 
   const handleNav = useCallback((route: string) => {
     const now = Date.now();
@@ -84,66 +171,63 @@ export default function SidebarLayout({ children, currentPaths }: { children: Re
     router.push(route);
   }, [router]);
 
-  const toggleDir = useCallback((dirPath: string) => {
-    setExpandedDirs((prev) => {
-      const next = new Set(prev);
-      if (next.has(dirPath)) next.delete(dirPath);
-      else next.add(dirPath);
-      return next;
-    });
+  const toggleDir = useCallback((route: string, currentlyExpanded: boolean) => {
+    if (currentlyExpanded) {
+      setManualCollapsed((prev) => new Set(prev).add(route));
+      setManualExpanded((prev) => { const n = new Set(prev); n.delete(route); return n; });
+    } else {
+      setManualExpanded((prev) => new Set(prev).add(route));
+      setManualCollapsed((prev) => { const n = new Set(prev); n.delete(route); return n; });
+    }
   }, []);
 
-  if (!session) return null;
+  if (!session) {
+    if (loading) {
+      return (
+        <main className="admin-shell">
+          <aside className="sidebar compact" />
+          <section className="main-panel" style={{ display: "grid", placeItems: "center" }}>
+            <div style={{ color: "var(--muted)" }}>加载中...</div>
+          </section>
+        </main>
+      );
+    }
+    return null;
+  }
 
-  const renderTree = (items: RouterItem[], depth: number): React.ReactNode[] => {
-    return items
-      .filter((item) => !item.hidden)
-      .map((item) => {
-        const children = visibleChildren(item);
-        const route = leafRoute(item);
+  const renderNavNode = (node: NavItem | DirItem, depth: number): React.ReactNode => {
+    if (node.type === "leaf") {
+      return (
+        <NavBtn
+          key={node.route}
+          active={node.active}
+          icon={node.icon}
+          label={node.label}
+          open={navOpen}
+          onClick={() => handleNav(node.route)}
+        />
+      );
+    }
 
-        if (children.length > 0) {
-          const active = anyDescendantActive(item, pathname);
-          const expanded = expandedDirs.has(item.path);
-          const title = item.meta?.title ?? item.name ?? "";
-
-          return (
-            <div key={item.path}>
-              <button
-                className={active ? "nav-button active" : "nav-button"}
-                onClick={() => toggleDir(item.path)}
-                title={title}
-              >
-                <SvgIcon name={item.meta?.icon} size={18} />
-                {navOpen && <span style={{ flex: 1, textAlign: "left" }}>{title}</span>}
-                {navOpen && (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
-              </button>
-              {navOpen && expanded && (
-                <div className="nav-submenu">
-                  {renderTree(children, depth + 1)}
-                </div>
-              )}
-              {!navOpen && expanded && renderTree(children, depth + 1)}
-            </div>
-          );
-        }
-
-        if (!route) return null;
-        const active = pathname.startsWith(route);
-        const icon = item.meta?.icon;
-        const label = item.meta?.title ?? viewTitles[item.path.replace("/", "")] ?? item.path;
-
-        return (
-          <NavBtn
-            key={item.path}
-            active={active}
-            icon={icon}
-            label={label}
-            open={navOpen}
-            onClick={() => handleNav(route)}
-          />
-        );
-      });
+    return (
+      <div key={node.route}>
+        <button
+          className={node.childActive ? "nav-button child-active" : "nav-button"}
+          onClick={() => toggleDir(node.route, node.expanded)}
+          title={node.label}
+        >
+          <SvgIcon name={node.icon} size={18} />
+          {navOpen && <span style={{ flex: 1, textAlign: "left" }}>{node.label}</span>}
+          {navOpen && (node.expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+        </button>
+        {navOpen && node.expanded && (
+          <div className="nav-submenu">
+            {node.children.map((c) => renderNavNode(c, depth + 1))}
+          </div>
+        )}
+        {!navOpen && node.expanded && node.children.map((c) => renderNavNode(c, depth + 1))}
+      </div>
+    );
   };
 
   return (
@@ -154,7 +238,7 @@ export default function SidebarLayout({ children, currentPaths }: { children: Re
           {navOpen && <div><strong>RuoYi Next</strong><span>FastAPI 后台</span></div>}
         </div>
         <nav className="nav-list">
-          {renderTree(routers, 0)}
+          {navTree.map((node) => renderNavNode(node, 0))}
         </nav>
         <div className="sidebar-collapse">
           <button className="icon-row" onClick={() => setNavOpen((v) => !v)} title="折叠菜单" style={{ width: "auto" }}>

@@ -12,6 +12,7 @@ from app.core.security import create_access_token, verify_password
 from app.db.redis import redis_client
 from app.db.session import get_db
 from app.models import SysLogininfor
+from app.services.cache import is_password_locked, pwd_err_clear, pwd_err_get, pwd_err_increment
 from app.services.rbac import LoginUser, build_routers, get_menu_permissions, get_role_keys, get_user_by_username, menu_tree_for_user
 
 router = APIRouter(tags=["auth"])
@@ -83,6 +84,12 @@ async def login(body: LoginBody, request: Request, db: Annotated[AsyncSession, D
         stored = await redis_client.get(f"captcha:{body.uuid}")
         if stored is None or str(stored) != body.code.strip():
             raise HTTPException(status_code=400, detail="验证码错误")
+
+    # 检查密码错误次数是否被锁定
+    retry_count = await pwd_err_get(body.username)
+    if is_password_locked(retry_count):
+        raise HTTPException(status_code=400, detail=f"密码错误次数已达上限（{retry_count}次），账户已锁定")
+
     user = await get_user_by_username(db, body.username)
     ok = bool(user and user.status == "0" and verify_password(body.password, user.password))
     ua = request.headers.get("User-Agent", "")
@@ -99,7 +106,9 @@ async def login(body: LoginBody, request: Request, db: Annotated[AsyncSession, D
     )
     await db.commit()
     if not ok or user is None:
+        await pwd_err_increment(body.username)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+    await pwd_err_clear(body.username)
     token, token_id, expire = create_access_token(user.user_id, user.user_name)
     await redis_client.setex(
         f"login_tokens:{token_id}",

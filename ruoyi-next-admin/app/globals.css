@@ -338,10 +338,20 @@ button {
 }
 
 .icon-row:hover,
-.nav-button:hover,
-.nav-button.active {
+.nav-button:hover {
   background: #1d2939;
   color: #fff;
+}
+
+.nav-button.active {
+  background: rgba(37, 99, 235, 0.18);
+  color: #93c5fd;
+}
+
+.nav-button.child-active,
+.nav-button.child-active:hover {
+  background: transparent;
+  color: #93c5fd;
 }
 
 .nav-list {

@@ -35,10 +35,6 @@ export default function RoleManagementPage() {
   const [dataScopeRole, setDataScopeRole] = useState<Record<string, unknown> | null>(null);
   const [authUserRole, setAuthUserRole] = useState<Record<string, unknown> | null>(null);
 
-  useEffect(() => {
-    if (!session) router.replace("/");
-  }, [session, router]);
-
   const perms = (session?.permissions ?? []) as string[];
   const cAdd = can(perms, "system:role:add");
   const cEdit = can(perms, "system:role:edit");

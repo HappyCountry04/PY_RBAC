@@ -47,9 +47,6 @@ export default function UserManagementPage() {
   const [resetPwdUser, setResetPwdUser] = useState<Record<string, unknown> | null>(null);
   const [authRoleUser, setAuthRoleUser] = useState<Record<string, unknown> | null>(null);
 
-  useEffect(() => {
-    if (!session) router.replace("/");
-  }, [session, router]);
 
   const perms = (session?.permissions ?? []) as string[];
   const cAdd = can(perms, "system:user:add");

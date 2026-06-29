@@ -1,8 +1,10 @@
+"""认证依赖：JWT 解析 + RBAC 权限校验 + 令牌滑动过期"""
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import decode_token
 from app.db.redis import redis_client
 from app.db.session import get_db
@@ -27,8 +29,15 @@ async def get_current_user(
     except ValueError as exc:
         raise HTTPException(status_code=401, detail="登录状态已过期") from exc
     token_id = payload.get("jti")
-    if token_id and await redis_client.exists(f"login_tokens:{token_id}") == 0:
+    token_key = f"login_tokens:{token_id}"
+    if token_id and await redis_client.exists(token_key) == 0:
         raise HTTPException(status_code=401, detail="登录状态已失效")
+    # 滑动过期：剩余时间不足阈值时自动续期
+    if token_id:
+        remaining = await redis_client.ttl(token_key)
+        threshold = settings.token_refresh_threshold_minutes * 60
+        if 0 < remaining < threshold:
+            await redis_client.expire(token_key, settings.access_token_expire_minutes * 60)
     user = await get_user_by_id(db, int(payload["sub"]))
     if user is None or user.status != "0":
         raise HTTPException(status_code=401, detail="用户不存在或已停用")

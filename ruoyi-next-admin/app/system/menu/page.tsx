@@ -92,8 +92,6 @@ export default function MenuManagementPage() {
 
   const [allRows, setAllRows] = useState<Record<string, unknown>[]>([]);
 
-  useEffect(() => { if (!session) router.replace("/"); }, [session, router]);
-
   const perms = (session?.permissions ?? []) as string[];
   const cAdd = can(perms, "system:menu:add");
   const cEdit = can(perms, "system:menu:edit");

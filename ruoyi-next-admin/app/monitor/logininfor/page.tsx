@@ -36,7 +36,6 @@ export default function LogininforPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectName, setSelectName] = useState("");
 
-  useEffect(() => { if (!session) router.replace("/"); }, [session, router]);
 
   const perms = (session?.permissions ?? []) as string[];
   const cRemove = can(perms, "monitor:logininfor:remove");

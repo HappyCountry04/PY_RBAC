@@ -38,8 +38,6 @@ export default function DeptManagementPage() {
   const [editModal, setEditModal] = useState<{ mode: "create" | "edit"; parentId?: number; deptId?: number } | null>(null);
   const [allRows, setAllRows] = useState<Record<string, unknown>[]>([]);
 
-  useEffect(() => { if (!session) router.replace("/"); }, [session, router]);
-
   const perms = (session?.permissions ?? []) as string[];
   const cAdd = can(perms, "system:dept:add");
   const cEdit = can(perms, "system:dept:edit");

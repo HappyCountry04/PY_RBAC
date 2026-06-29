@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const bootstrap = useCallback(async () => {
@@ -66,7 +66,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (getToken()) void bootstrap();
+    if (getToken()) {
+      void bootstrap();
+    } else {
+      setLoading(false);
+    }
   }, [bootstrap]);
 
   return (

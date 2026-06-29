@@ -38,9 +38,6 @@ export default function OperlogPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [detailRow, setDetailRow] = useState<Record<string, unknown> | null>(null);
 
-  useEffect(() => { if (!session) router.replace("/"); }, [session, router]);
-
-  const routerRef = router;
 
   const perms = (session?.permissions ?? []) as string[];
   const cQuery = can(perms, "monitor:operlog:query");

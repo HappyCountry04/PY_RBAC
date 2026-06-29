@@ -36,8 +36,6 @@ export default function DictManagementPage() {
   // Dict data management modal
   const [dataManage, setDataManage] = useState<Record<string, unknown> | null>(null);
 
-  useEffect(() => { if (!session) router.replace("/"); }, [session, router]);
-
   const perms = (session?.permissions ?? []) as string[];
   const cAdd = can(perms, "system:dict:add");
   const cEdit = can(perms, "system:dict:edit");

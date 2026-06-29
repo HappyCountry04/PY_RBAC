@@ -33,8 +33,6 @@ export default function ConfigManagementPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [editModal, setEditModal] = useState<{ mode: "create" | "edit"; configId?: number } | null>(null);
 
-  useEffect(() => { if (!session) router.replace("/"); }, [session, router]);
-
   const perms = (session?.permissions ?? []) as string[];
   const cAdd = can(perms, "system:config:add");
   const cEdit = can(perms, "system:config:edit");
